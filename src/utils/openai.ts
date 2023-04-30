@@ -63,13 +63,14 @@ const httpsPost = async (
 });
 
 const createChatCompletion = async (
+	baseUrl: string,
 	apiKey: string,
 	json: CreateChatCompletionRequest,
 	timeout: number,
 	proxy?: string,
 ) => {
 	const { response, data } = await httpsPost(
-		'api.openai.com',
+		baseUrl || 'api.openai.com',
 		'/v1/chat/completions',
 		{
 			Authorization: `Bearer ${apiKey}`,
@@ -110,10 +111,10 @@ const getPrompt = (
 	maxLength: number,
 ) => `${[
 	'Generate a concise git commit message written in present tense for the following code diff with the given specifications.',
-	`Message language: ${locale}`,
 	`Max message character length: ${maxLength}`,
 	'Exclude anything unnecessary such as the original translation—your entire response will be passed directly into git commit.',
 ].join('\n')}\n\n${diff}`;
+const getPromptPR = (locale: string, diff: string) => `Write an insightful Git PR Description in present tense for the following diff without prefacing it with anything, Remember to send only the PR description and nothing else. Try to make it detailed while keeping it simple. Start the description with "Fixes #xxxx".\nDif:\n${diff}`;
 
 const generateStringFromLength = (length: number) => {
 	let result = '';
@@ -133,6 +134,7 @@ const getTokens = (prompt: string, model: TiktokenModel) => {
 };
 
 export const generateCommitMessage = async (
+	baseUrl: string,
 	apiKey: string,
 	model: TiktokenModel,
 	locale: string,
@@ -148,10 +150,14 @@ export const generateCommitMessage = async (
 	const stringFromLength = generateStringFromLength(maxLength + 5);
 
 	// The token limit is shared between the prompt and the completion.
-	const maxTokens = getTokens(stringFromLength + prompt, model);
+	const maxTokens = getTokens(prompt, model);
+
+	if (maxTokens > 4096) {
+		throw new KnownError(`The prompt and completion combined are too long. The maximum token length is 4096, but the prompt and completion combined are ${maxTokens} tokens long.`);
+	}
 
 	try {
-		const completion = await createChatCompletion(
+		const completion = await createChatCompletion(baseUrl,
 			apiKey,
 			{
 				model,
@@ -168,8 +174,7 @@ export const generateCommitMessage = async (
 				n: completions,
 			},
 			timeout,
-			proxy,
-		);
+			proxy);
 
 		return deduplicateMessages(
 			completion.choices
@@ -180,6 +185,66 @@ export const generateCommitMessage = async (
 		const errorAsAny = error as any;
 		if (errorAsAny.code === 'ENOTFOUND') {
 			throw new KnownError(`Error connecting to ${errorAsAny.hostname} (${errorAsAny.syscall}). Are you connected to the internet?`);
+		}
+
+		throw errorAsAny;
+	}
+};
+
+export const generatePRMessage = async (
+	baseUrl: string,
+	apiKey: string,
+	model: TiktokenModel,
+	locale: string,
+	diff: string,
+	completions: number,
+	maxLength: number,
+	timeout: number,
+	proxy?: string,
+) => {
+	const prompt = getPromptPR(locale, diff);
+
+	// Padded by 5 for more room for the completion.
+	const stringFromLength = generateStringFromLength(maxLength + 5);
+
+	// The token limit is shared between the prompt and the completion.
+	const maxTokens = getTokens(prompt, model);
+
+	if (maxTokens > 4096) {
+		throw new KnownError(`The prompt and completion combined are too long. The maximum token length is 4096, but the prompt and completion combined are ${maxTokens} tokens long.`);
+	}
+
+	try {
+		const completion = await createChatCompletion(baseUrl,
+			apiKey,
+			{
+				model,
+				messages: [{
+					role: 'user',
+					content: prompt,
+				}],
+				temperature: 0.7,
+				top_p: 1,
+				frequency_penalty: 0,
+				presence_penalty: 0,
+				max_tokens: maxTokens,
+				stream: false,
+				n: completions,
+			},
+			timeout,
+			proxy);
+
+		return deduplicateMessages(
+			completion.choices
+				.filter(choice => choice.message?.content)
+				.map(choice => (choice.message!.content)),
+		);
+	} catch (error) {
+		const errorAsAny = error as any;
+		if (errorAsAny.code === 'ENOTFOUND') {
+			throw new KnownError(
+				`Error connecting to ${errorAsAny.hostname} (${errorAsAny.syscall}). Are you connected to the internet?`,
+			);
 		}
 
 		throw errorAsAny;

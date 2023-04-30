@@ -11,7 +11,7 @@ import {
 	getDetectedMessage,
 } from '../utils/git.js';
 import { getConfig } from '../utils/config.js';
-import { generateCommitMessage } from '../utils/openai.js';
+import { generateCommitMessage, generatePRMessage } from '../utils/openai.js';
 import { KnownError, handleCliError } from '../utils/error.js';
 
 export default async (
@@ -43,6 +43,7 @@ export default async (
 	const { env } = process;
 	const config = await getConfig({
 		OPENAI_KEY: env.OPENAI_KEY || env.OPENAI_API_KEY,
+		OPENAI_BASE_URL: env.OPENAI_BASE_URL,
 		proxy: env.https_proxy || env.HTTPS_PROXY || env.http_proxy || env.HTTP_PROXY,
 		generate: generate?.toString(),
 	});
@@ -50,8 +51,21 @@ export default async (
 	const s = spinner();
 	s.start('The AI is analyzing your changes');
 	let messages: string[];
+	let messagesPR: string[];
 	try {
 		messages = await generateCommitMessage(
+			config.OPENAI_BASE_URL,
+			config.OPENAI_KEY,
+			config.model,
+			config.locale,
+			staged.diff,
+			config.generate,
+			config['max-length'],
+			config.timeout,
+			config.proxy,
+		);
+		messagesPR = await generatePRMessage(
+			config.OPENAI_BASE_URL,
 			config.OPENAI_KEY,
 			config.model,
 			config.locale,
@@ -70,10 +84,12 @@ export default async (
 	}
 
 	let message: string;
+	let messagePR: string;
 	if (messages.length === 1) {
 		[message] = messages;
+		[messagePR] = messagesPR;
 		const confirmed = await confirm({
-			message: `Use this commit message?\n\n   ${message}\n`,
+			message: `\nPR Description:\n\n${messagePR}\n\nCommit Message:\n${message}\n\nUse this commit message?\n\n`,
 		});
 
 		if (!confirmed || isCancel(confirmed)) {

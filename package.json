@@ -26,9 +26,6 @@
 		"test": "tsx tests",
 		"prepack": "pnpm build && clean-pkg-json"
 	},
-	"simple-git-hooks": {
-		"pre-commit": "pnpm lint-staged"
-	},
 	"lint-staged": {
 		"*.ts": "eslint --cache"
 	},

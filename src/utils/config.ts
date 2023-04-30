@@ -20,6 +20,14 @@ const parseAssert = (
 };
 
 const configParsers = {
+	OPENAI_BASE_URL(key?: string) {
+		if (!key) {
+			throw new KnownError('Please set your OpenAI BASE URL key via `aicommits config set OPENAI_BASE_URL=<your url>`');
+		}
+		parseAssert('OPENAI_BASE_URL', true, '');
+
+		return key;
+	},
 	OPENAI_KEY(key?: string) {
 		if (!key) {
 			throw new KnownError('Please set your OpenAI API key via `aicommits config set OPENAI_KEY=<your token>`');
@@ -129,7 +137,7 @@ export const getConfig = async (
 		if (suppressErrors) {
 			try {
 				parsedConfig[key] = parser(value);
-			} catch {}
+			} catch { }
 		} else {
 			parsedConfig[key] = parser(value);
 		}
